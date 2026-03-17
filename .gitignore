@@ -1,0 +1,23 @@
+# Virtual environment
+.venv/
+
+# Environment variables / API keys
+.env
+
+# ADK local storage (sessions, artifacts)
+.adk/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Jupyter
+.ipynb_checkpoints/
+
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
