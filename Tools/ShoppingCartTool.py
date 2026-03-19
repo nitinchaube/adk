@@ -1,3 +1,7 @@
+from google.adk.tools import ToolContext
+from datetime import datetime
+from google import adk
+
 async def add_to_cart(product_id: str, tool_context: ToolContext, quantity: int = 1) -> dict:
     '''
     Adds a product to the shopping cart.
@@ -34,7 +38,7 @@ async def checkout(tool_context: ToolContext) -> dict:
     Only call this when the user explicitly says they want to checkout,
     place an order, or complete their purchase. Never call this proactively.
     """
-    
+
     cart = tool_context.state.get("user:cart", {"items":[], "total": 0.0})
     if not cart["items"]:
         return {"error": "Empty Cart"}
