@@ -82,3 +82,69 @@ async def get_product_details(product_id: str)-> dict:
         return {"status": "success", **catalog[product_id]}
     return {"status": "error", "error_message": f"Product '{product_id}' not found."}
 
+
+async def analyze_product_image(product_description: str, tool_context: ToolContext)->dict:
+    """
+    Analyzes an uploaded product image to identify the product.
+
+    Use this tool when the user uploads or shares a photo of a product
+    and wants to know what it is, or wants to add it to their cart.
+    Do NOT use this for text-based product queries — use get_product_details instead.
+
+    Args:
+        image_data: Base64-encoded image string or a public image URL.
+        tool_context: ADK context for session state access.
+
+    Returns:
+        dict with keys:
+            - identified_product (str): Best matching product name.
+            - suggested_product_id (str): Closest matching product ID from catalog.
+            - confidence (str): 'high', 'medium', or 'low'.
+            - description (str): Brief description of what was seen in the image.
+    """
+    catalog = {
+        "PROD-001": {"name": "Wireless Headphones", "keywords": ["headphone", "headset", "earphone", "audio", "wireless"]},
+        "PROD-002": {"name": "Phone",          "keywords": ["case", "cover", "phone", "mobile"]},
+        "PROD-003": {"name": "USB-C Cable",         "keywords": ["cable", "usb", "charger", "cord"]},
+    }
+    desc_lower = product_description.lower()
+    for product_id, info in catalog.items():
+        if any(kw in desc_lower for kw in info["keywords"]):
+            return {"identified_product": info["name"], "suggested_product_id": product_id, "confidence": "high"}
+    return {"identified_product": "unknown", "suggested_product_id": None, "confidence": "low",
+            "message": "Could not match to catalog. Ask user for the product ID."}
+
+async def create_return_ticket(reason, tool_context, order_id= "UNKNOWN", damage_description = "") -> dict:
+    """
+    Creates a return or support ticket for an order.
+
+    Use this when a user reports a damaged item, wrong item received,
+    or wants to return a product. If the user shared a photo of damage,
+    include the damage description extracted from the image.
+
+    Args:
+        reason: Reason for return — 'damaged', 'wrong_item', 'not_as_described', 'other'.
+        order_id: The order ID from a previous checkout, format 'ORD-YYYYMMDDHHMMSS'.
+        tool_context: ADK context for session state access.
+        damage_description: Optional description of damage seen in uploaded photo.
+
+    Returns:
+        dict with keys:
+            - ticket_id (str): Generated support ticket ID.
+            - status (str): 'created'.
+            - estimated_resolution (str): Estimated resolution timeframe.
+    """
+    from datetime import datetime
+    ticket_id = f"TKT-{datetime.now():%Y%m%d%H%M%S}"
+    tool_context.state["user:open_tickets"] = (
+        tool_context.state.get("user:open_tickets", []) + [ticket_id]
+    )
+    return {
+        "ticket_id": ticket_id,
+        "status": "created",
+        "reason": reason,
+        "damage_description": damage_description,
+        "estimated_resolution": "2-3 business days"
+    }
+
+
