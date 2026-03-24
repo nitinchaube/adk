@@ -33,16 +33,12 @@ async def validate_before_tool(
     args: dict[str, Any],
     tool_context: ToolContext,
 ) -> dict | None:
-    """
-    Runs before every tool call.
-    Return a dict to short-circuit tool execution; return None to continue.
-    """
     if tool.name == "checkout":
         cart = tool_context.state.get("user:cart", {"items": []})
         if not cart.get("items"):
             return {
                 "error": "EMPTY_CART",
-                "message": "Cannot checkout — cart is empty.",
+                "message": "Cannot checkout - cart is empty.",
             }
 
     if tool.name == "add_to_cart":
@@ -63,18 +59,12 @@ async def handle_tool_error(
     tool_context: ToolContext,
     tool_response: dict,
 ) -> dict | None:
-    """
-    Runs after every tool call.
-    Return a dict to override tool response; return None to keep original response.
-    """
     if isinstance(tool_response, dict) and "error" in tool_response:
         error_code = tool_response.get("error")
         print(f"[ERROR] Tool '{tool.name}' failed: {error_code}")
-
         tool_context.state["temp:error_count"] = (
             tool_context.state.get("temp:error_count", 0) + 1
         )
-
         if tool_context.state["temp:error_count"] >= 3:
             return {
                 "error": "ESCALATE",
@@ -85,26 +75,28 @@ async def handle_tool_error(
 
 
 root_agent = LlmAgent(
-    name="CustomerSupportTextAgent",
-    model="gemini-2.5-flash",
-    description="Text-first customer support agent for shopping cart, returns, and product queries.",
+    name="CustomerSupportLiveAgent",
+    model="gemini-live-2.5-flash-native-audio",
+    description="Live audio customer support agent for shopping cart, returns, and product queries.",
     instruction="""
-    You are a multimodal shopping assistant. You have tools for EVERY customer need.
-    You MUST use your tools — NEVER say you cannot process something.
+    You are a multimodal shopping assistant with live voice support.
+    You MUST use tools for product, cart, return, and books queries.
 
-    IMAGE inputs — you MUST follow this sequence:
-    1. ALWAYS call analyze_product_image first for ANY uploaded image.
-    Describe what you see as the product_description argument.
-    2. If the image shows a damaged/broken/wrong item → ALWAYS call create_return_ticket immediately.
-    Use order_id='UNKNOWN' if the user hasn't provided one, then ask for it afterward.
-    3. If the image shows a product for purchase → use the result to offer add_to_cart.
+    SHOPPING:
+    - Product questions -> get_product_details first.
+    - Add only valid product ids.
+    - Checkout only when user explicitly asks.
 
-    NEVER respond with "I cannot process refunds" or "contact customer service".
-    You ARE the customer service. Use your tools.
+    IMAGE/VIDEO:
+    - Analyze shown products with analyze_product_image.
+    - Create return tickets for damaged/wrong products.
+
+    KNOWLEDGE:
+    - Use search_books for books/authors/recommendations questions.
 
     MEMORY:
-    - Always greet the user by name if known.
-    - Remember preferences and past orders across sessions.
+    - Greet user by name if known.
+    - Remember preferences and past details.
     """,
     tools=[
         add_to_cart,
@@ -118,6 +110,14 @@ root_agent = LlmAgent(
     after_agent_callback=save_shopping_memory,
     before_tool_callback=validate_before_tool,
     after_tool_callback=handle_tool_error,
+    generate_content_config=types.GenerateContentConfig(
+        response_modalities=["AUDIO"],
+        speech_config=types.SpeechConfig(
+            voice_config=types.VoiceConfig(
+                prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                    voice_name="Aoede"
+                )
+            )
+        ),
+    ),
 )
-
-
