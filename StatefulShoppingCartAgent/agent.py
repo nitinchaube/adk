@@ -9,7 +9,15 @@ from google.adk.agents import LlmAgent
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.tools import BaseTool, ToolContext
 from google.adk.tools.preload_memory_tool import PreloadMemoryTool
-from google.genai import types
+
+from config.catalog import valid_product_ids
+from config.settings import (
+    MAX_TOOL_ERRORS_BEFORE_ESCALATE,
+    MEMORY_EVENTS_SLICE_END,
+    MEMORY_EVENTS_SLICE_START,
+    TEXT_AGENT_NAME,
+    TEXT_MODEL,
+)
 
 from Tools.ExternalAPITool import search_books
 from Tools.ShoppingCartTool import (
@@ -21,9 +29,10 @@ from Tools.ShoppingCartTool import (
 )
 
 
-async def save_shopping_memory(callback_context: CallbackContext):
+async def save_shopping_memory(callback_context: CallbackContext) -> None:
+    sl = slice(MEMORY_EVENTS_SLICE_START, MEMORY_EVENTS_SLICE_END)
     await callback_context.add_events_to_memory(
-        events=callback_context.session.events[-5:-1]
+        events=callback_context.session.events[sl],
     )
     return None
 
@@ -32,7 +41,7 @@ async def validate_before_tool(
     tool: BaseTool,
     args: dict[str, Any],
     tool_context: ToolContext,
-) -> dict | None:
+) -> dict[str, Any] | None:
     """
     Runs before every tool call.
     Return a dict to short-circuit tool execution; return None to continue.
@@ -46,9 +55,8 @@ async def validate_before_tool(
             }
 
     if tool.name == "add_to_cart":
-        valid_ids = ["PROD-001", "PROD-002", "PROD-003"]
         product_id = args.get("product_id")
-        if product_id not in valid_ids:
+        if product_id not in valid_product_ids():
             return {
                 "error": "INVALID_PRODUCT",
                 "message": f"Product '{product_id}' does not exist.",
@@ -61,8 +69,8 @@ async def handle_tool_error(
     tool: BaseTool,
     args: dict[str, Any],
     tool_context: ToolContext,
-    tool_response: dict,
-) -> dict | None:
+    tool_response: dict[str, Any],
+) -> dict[str, Any] | None:
     """
     Runs after every tool call.
     Return a dict to override tool response; return None to keep original response.
@@ -75,7 +83,7 @@ async def handle_tool_error(
             tool_context.state.get("temp:error_count", 0) + 1
         )
 
-        if tool_context.state["temp:error_count"] >= 3:
+        if tool_context.state["temp:error_count"] >= MAX_TOOL_ERRORS_BEFORE_ESCALATE:
             return {
                 "error": "ESCALATE",
                 "message": "Multiple failures detected. Escalating to human agent.",
@@ -85,8 +93,8 @@ async def handle_tool_error(
 
 
 root_agent = LlmAgent(
-    name="CustomerSupportTextAgent",
-    model="gemini-2.5-flash",
+    name=TEXT_AGENT_NAME,
+    model=TEXT_MODEL,
     description="Text-first customer support agent for shopping cart, returns, and product queries.",
     instruction="""
     You are a multimodal shopping assistant. You have tools for EVERY customer need.

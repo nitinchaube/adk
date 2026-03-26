@@ -1,77 +1,94 @@
-from google.adk.tools import ToolContext
+from __future__ import annotations
+
 from datetime import datetime
-from google import adk
+
+from google.adk.tools import ToolContext
 from pydantic import BaseModel, validator
+
+from config.catalog import PRODUCTS, valid_product_ids
+from config.settings import (
+    DEFAULT_LOYALTY_THRESHOLD,
+    LOYALTY_STATE_KEYS,
+    ORDER_ID_PREFIX,
+    RETURN_ESTIMATED_RESOLUTION,
+    TICKET_ID_PREFIX,
+)
+
 
 class AddToCartInput(BaseModel):
     product_id: str
     quantity: int
 
-    @validator('product_id')
-    def product_must_exist(cls, v):
-        valid_ids = ["PROD-001", "PROD-002", "PROD-003"]
-        if v not in valid_ids:
-            raise ValueError(f"Invalid product_id '{v}'. Must be one of {valid_ids}")
+    @validator("product_id")
+    def product_must_exist(cls, v: str) -> str:
+        if v not in PRODUCTS:
+            raise ValueError(
+                f"Invalid product_id '{v}'. Must be one of {list(valid_product_ids())}"
+            )
         return v
 
-    @validator('quantity')
-    def quantity_must_be_positive(cls, v):
+    @validator("quantity")
+    def quantity_must_be_positive(cls, v: int) -> int:
         if v <= 0:
             raise ValueError("Quantity must be at least 1")
         return v
 
-async def add_to_cart(product_id: str, tool_context: ToolContext, quantity: int = 1) -> dict:
-    '''
-    Adds a product to the shopping cart.
 
-    Call this ONLY after confirming the product exists and is in stock.
-    Do NOT call this if the user is just asking about a product — use
-    get_product_details first.
+async def add_to_cart(
+    product_id: str, tool_context: ToolContext, quantity: int = 1
+) -> dict:
+    """Add validated catalog item to cart using price from config catalog."""
 
-    '''
     try:
         validated = AddToCartInput(product_id=product_id, quantity=quantity)
     except ValueError as e:
         return {"error": str(e), "success": False}
 
-    # user state
-    cart = tool_context.state.get("user:cart", {"items": [], "total": 0.0})
-    # add the item
-    cart["items"].append({"id": validated.product_id, "qty": validated.quantity, "price": 24.99})
-    cart["total"] = sum(item["price"]*item["qty"] for item in cart["items"])
+    # Enforce stock availability at the tool level (LLM instructions are not a guarantee).
+    if not PRODUCTS[validated.product_id]["in_stock"]:
+        return {
+            "error": "OUT_OF_STOCK",
+            "message": f"Product '{validated.product_id}' is currently out of stock.",
+            "success": False,
+        }
 
-    # updating user state
+    unit_price = PRODUCTS[validated.product_id]["price"]
+    cart = tool_context.state.get("user:cart", {"items": [], "total": 0.0})
+    cart["items"].append(
+        {"id": validated.product_id, "qty": validated.quantity, "price": unit_price}
+    )
+    cart["total"] = sum(item["price"] * item["qty"] for item in cart["items"])
+
     tool_context.state["user:cart"] = cart
     tool_context.state["user:total_items"] = (
         tool_context.state.get("user:total_items", 0) + validated.quantity
     )
-
-    # temp_state: 
     tool_context.state["temp:last_action"] = f"Added {validated.product_id}"
     tool_context.state["temp:session_adds"] = (
-        tool_context.state.get("temp:session_adds", 0)+1
+        tool_context.state.get("temp:session_adds", 0) + 1
     )
 
     return {"success": True, "cart_total": cart["total"]}
 
-async def checkout(tool_context: ToolContext) -> dict:
-    """
-    Processes the cart and creates an order.
 
-    Only call this when the user explicitly says they want to checkout,
-    place an order, or complete their purchase. Never call this proactively.
-    """
+async def checkout(tool_context: ToolContext) -> dict:
+    """Finalize cart into an order; VIP threshold comes from config default + session override."""
 
     try:
         cart = tool_context.state.get("user:cart", {"items": [], "total": 0.0})
 
         if not cart["items"]:
-            return {"error": "EMPTY_CART", "message": "Cart is empty. Add items before checking out."}
+            return {
+                "error": "EMPTY_CART",
+                "message": "Cart is empty. Add items before checking out.",
+            }
 
         if cart["total"] <= 0:
-            return {"error": "INVALID_TOTAL", "message": "Cart total is invalid. Please re-add items."}
+            return {
+                "error": "INVALID_TOTAL",
+                "message": "Cart total is invalid. Please re-add items.",
+            }
 
-        # Update the user state
         tool_context.state["user:lifetime_value"] = (
             tool_context.state.get("user:lifetime_value", 0) + cart["total"]
         )
@@ -79,69 +96,64 @@ async def checkout(tool_context: ToolContext) -> dict:
             tool_context.state.get("user:order_count", 0) + 1
         )
 
-        if (tool_context.state["user:lifetime_value"] > tool_context.state.get("app:loyality_threshold", 500)):
+        threshold = DEFAULT_LOYALTY_THRESHOLD
+        for k in LOYALTY_STATE_KEYS:
+            v = tool_context.state.get(k)
+            if v is not None:
+                threshold = float(v)
+                break
+        if tool_context.state["user:lifetime_value"] > threshold:
             tool_context.state["user:is_vip"] = True
 
-        #clear cart
         tool_context.state["user:cart"] = {"items": [], "total": 0.0}
 
-        return {"success": True, "order_id": f"ORD-{datetime.now():%Y%m%d%H%M%S}"}
-    
+        return {
+            "success": True,
+            "order_id": f"{ORDER_ID_PREFIX}{datetime.now():%Y%m%d%H%M%S}",
+        }
+
     except KeyError as e:
-        return {"error": "STATE_CORRUPTED", "message": f"Session data is missing: {e}. Please start a new session."}
-    except Exception as e:
-        return {"error": "UNEXPECTED", "message": f"Something went wrong. Please try again."}
+        return {
+            "error": "STATE_CORRUPTED",
+            "message": f"Session data is missing: {e}. Please start a new session.",
+        }
+    except Exception:
+        return {
+            "error": "UNEXPECTED",
+            "message": "Something went wrong. Please try again.",
+        }
 
 
-async def get_product_details(product_id: str)-> dict:
-    """
-    Retrieves the name, price, and stock availability for a given product.
+async def get_product_details(product_id: str) -> dict:
+    """Return catalog row for a product id."""
 
-    Use this tool when the user asks about a product before adding it to cart,
-    or when you need to confirm the price of an item.
-
-    Args:
-        product_id: The unique product identifier, e.g. 'PROD-001'.
-
-    Returns:
-        A dict with keys: name, price, in_stock (bool), or an error message.
-    """
-    catalog = {
-        "PROD-001": {"name": "Wireless Headphones", "price": 24.99, "in_stock": True},
-        "PROD-002": {"name": "Phone Case",          "price": 9.99,  "in_stock": True},
-        "PROD-003": {"name": "USB-C Cable",         "price": 14.99, "in_stock": False},
+    if product_id in PRODUCTS:
+        p = PRODUCTS[product_id]
+        return {
+            "status": "success",
+            "name": p["name"],
+            "price": p["price"],
+            "in_stock": p["in_stock"],
+        }
+    return {
+        "status": "error",
+        "error_message": f"Product '{product_id}' not found.",
     }
-    if product_id in catalog:
-        return {"status": "success", **catalog[product_id]}
-    return {"status": "error", "error_message": f"Product '{product_id}' not found."}
 
 
-async def analyze_product_image(product_description: str, tool_context: ToolContext) -> dict:
-    """
-    Matches a visual description of a product to the catalog.
+async def analyze_product_image(
+    product_description: str, tool_context: ToolContext
+) -> dict:
+    """Heuristic keyword match from catalog keywords."""
 
-    Use this tool when:
-    - The user uploads a product photo (static image)
-    - During a live video session when the user shows a product to the camera
-    - The user describes something they are looking at
-
-    In live video mode, you will continuously see the camera feed.
-    Call this tool when the user asks "what is this?" or "can I buy this?"
-    while pointing their camera at an object.
-
-    Args:
-        product_description: Your visual description of what you see,
-            e.g. "person holding black over-ear headphones".
-    """
-    catalog = {
-        "PROD-001": {"name": "Wireless Headphones", "keywords": ["headphone", "headset", "earphone", "audio", "wireless"]},
-        "PROD-002": {"name": "Phone", "keywords": ["case", "cover", "phone", "mobile"]},
-        "PROD-003": {"name": "USB-C Cable", "keywords": ["cable", "usb", "charger", "cord"]},
-    }
     desc_lower = product_description.lower()
-    for product_id, info in catalog.items():
+    for product_id, info in PRODUCTS.items():
         if any(kw in desc_lower for kw in info["keywords"]):
-            return {"identified_product": info["name"], "suggested_product_id": product_id, "confidence": "high"}
+            return {
+                "identified_product": info["name"],
+                "suggested_product_id": product_id,
+                "confidence": "high",
+            }
 
     return {
         "identified_product": "unknown",
@@ -150,28 +162,16 @@ async def analyze_product_image(product_description: str, tool_context: ToolCont
         "message": "Could not match to catalog. Ask user for the product ID.",
     }
 
-async def create_return_ticket(reason, tool_context, order_id= "UNKNOWN", damage_description = "") -> dict:
-    """
-    Creates a return or support ticket for an order.
 
-    Use this when a user reports a damaged item, wrong item received,
-    or wants to return a product. If the user shared a photo of damage,
-    include the damage description extracted from the image.
+async def create_return_ticket(
+    reason: str,
+    tool_context: ToolContext,
+    order_id: str = "UNKNOWN",
+    damage_description: str = "",
+) -> dict:
+    """Open a support ticket; id prefix and SLA text from config."""
 
-    Args:
-        reason: Reason for return — 'damaged', 'wrong_item', 'not_as_described', 'other'.
-        order_id: The order ID from a previous checkout, format 'ORD-YYYYMMDDHHMMSS'.
-        tool_context: ADK context for session state access.
-        damage_description: Optional description of damage seen in uploaded photo.
-
-    Returns:
-        dict with keys:
-            - ticket_id (str): Generated support ticket ID.
-            - status (str): 'created'.
-            - estimated_resolution (str): Estimated resolution timeframe.
-    """
-    from datetime import datetime
-    ticket_id = f"TKT-{datetime.now():%Y%m%d%H%M%S}"
+    ticket_id = f"{TICKET_ID_PREFIX}{datetime.now():%Y%m%d%H%M%S}"
     tool_context.state["user:open_tickets"] = (
         tool_context.state.get("user:open_tickets", []) + [ticket_id]
     )
@@ -179,8 +179,7 @@ async def create_return_ticket(reason, tool_context, order_id= "UNKNOWN", damage
         "ticket_id": ticket_id,
         "status": "created",
         "reason": reason,
+        "order_id": order_id,
         "damage_description": damage_description,
-        "estimated_resolution": "2-3 business days"
+        "estimated_resolution": RETURN_ESTIMATED_RESOLUTION,
     }
-
-

@@ -11,6 +11,16 @@ from google.adk.tools import BaseTool, ToolContext
 from google.adk.tools.preload_memory_tool import PreloadMemoryTool
 from google.genai import types
 
+from config.catalog import valid_product_ids
+from config.settings import (
+    LIVE_AGENT_NAME,
+    LIVE_MODEL,
+    MAX_TOOL_ERRORS_BEFORE_ESCALATE,
+    MEMORY_EVENTS_SLICE_END,
+    MEMORY_EVENTS_SLICE_START,
+    VOICE_NAME,
+)
+
 from Tools.ExternalAPITool import search_books
 from Tools.ShoppingCartTool import (
     add_to_cart,
@@ -21,9 +31,10 @@ from Tools.ShoppingCartTool import (
 )
 
 
-async def save_shopping_memory(callback_context: CallbackContext):
+async def save_shopping_memory(callback_context: CallbackContext) -> None:
+    sl = slice(MEMORY_EVENTS_SLICE_START, MEMORY_EVENTS_SLICE_END)
     await callback_context.add_events_to_memory(
-        events=callback_context.session.events[-5:-1]
+        events=callback_context.session.events[sl],
     )
     return None
 
@@ -32,7 +43,7 @@ async def validate_before_tool(
     tool: BaseTool,
     args: dict[str, Any],
     tool_context: ToolContext,
-) -> dict | None:
+) -> dict[str, Any] | None:
     if tool.name == "checkout":
         cart = tool_context.state.get("user:cart", {"items": []})
         if not cart.get("items"):
@@ -42,9 +53,8 @@ async def validate_before_tool(
             }
 
     if tool.name == "add_to_cart":
-        valid_ids = ["PROD-001", "PROD-002", "PROD-003"]
         product_id = args.get("product_id")
-        if product_id not in valid_ids:
+        if product_id not in valid_product_ids():
             return {
                 "error": "INVALID_PRODUCT",
                 "message": f"Product '{product_id}' does not exist.",
@@ -57,15 +67,15 @@ async def handle_tool_error(
     tool: BaseTool,
     args: dict[str, Any],
     tool_context: ToolContext,
-    tool_response: dict,
-) -> dict | None:
+    tool_response: dict[str, Any],
+) -> dict[str, Any] | None:
     if isinstance(tool_response, dict) and "error" in tool_response:
         error_code = tool_response.get("error")
         print(f"[ERROR] Tool '{tool.name}' failed: {error_code}")
         tool_context.state["temp:error_count"] = (
             tool_context.state.get("temp:error_count", 0) + 1
         )
-        if tool_context.state["temp:error_count"] >= 3:
+        if tool_context.state["temp:error_count"] >= MAX_TOOL_ERRORS_BEFORE_ESCALATE:
             return {
                 "error": "ESCALATE",
                 "message": "Multiple failures detected. Escalating to human agent.",
@@ -75,8 +85,8 @@ async def handle_tool_error(
 
 
 root_agent = LlmAgent(
-    name="CustomerSupportLiveAgent",
-    model="gemini-live-2.5-flash-native-audio",
+    name=LIVE_AGENT_NAME,
+    model=LIVE_MODEL,
     description="Live audio customer support agent for shopping cart, returns, and product queries.",
     instruction="""
     You are a multimodal shopping assistant with live voice support.
@@ -115,7 +125,7 @@ root_agent = LlmAgent(
         speech_config=types.SpeechConfig(
             voice_config=types.VoiceConfig(
                 prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                    voice_name="Aoede"
+                    voice_name=VOICE_NAME
                 )
             )
         ),
