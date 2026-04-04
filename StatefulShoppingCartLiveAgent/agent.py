@@ -32,11 +32,13 @@ from Tools.ShoppingCartTool import (
 
 
 async def save_shopping_memory(callback_context: CallbackContext) -> None:
-    sl = slice(MEMORY_EVENTS_SLICE_START, MEMORY_EVENTS_SLICE_END)
-    await callback_context.add_events_to_memory(
-        events=callback_context.session.events[sl],
-    )
-    return None
+    try:
+        sl = slice(MEMORY_EVENTS_SLICE_START, MEMORY_EVENTS_SLICE_END)
+        await callback_context.add_events_to_memory(
+            events=callback_context.session.events[sl],
+        )
+    except ValueError:
+        pass
 
 
 async def validate_before_tool(

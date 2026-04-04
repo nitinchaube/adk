@@ -16,10 +16,13 @@ from config.settings import (
 
 
 async def generate_memory_callback(callback_context: CallbackContext) -> None:
-    sl = slice(MEMORY_EVENTS_SLICE_START, MEMORY_EVENTS_SLICE_END)
-    await callback_context.add_events_to_memory(
-        events=callback_context.session.events[sl],
-    )
+    try:
+        sl = slice(MEMORY_EVENTS_SLICE_START, MEMORY_EVENTS_SLICE_END)
+        await callback_context.add_events_to_memory(
+            events=callback_context.session.events[sl],
+        )
+    except ValueError:
+        pass
 
 
 root_agent = adk.Agent(
