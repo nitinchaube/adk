@@ -1,12 +1,17 @@
+import os
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from google.adk.agents import LlmAgent
 from google.adk.tools import AgentTool
+from config.guardrails import input_guardrail, output_guardrail
 
-# 1 - Research Agent
+
 research_agent = LlmAgent(
-    name = "ResearchAgent",
-    model = "gemini-2.5-flash",
-    description = "Find detailed reaseached, factual information about any topic.",
-    instruction = """
+    name="ResearchAgent",
+    model="gemini-2.5-flash",
+    description="Find detailed researched, factual information about any topic.",
+    instruction="""
         You are a research specialist. Given a topic or question:
   1. Provide comprehensive factual information.
   2. Include key concepts, history, and current state.
@@ -16,12 +21,11 @@ research_agent = LlmAgent(
     """,
 )
 
-#2 - Summary Agent
 summary_agent = LlmAgent(
-    name = "SummaryAgent",
-    model = "gemini-2.5-flash",
-    description = "Condenses detailed research into a clear, readable summary.",
-    instruction = """
+    name="SummaryAgent",
+    model="gemini-2.5-flash",
+    description="Condenses detailed research into a clear, readable summary.",
+    instruction="""
     You are a professional summarizer. Given raw research:
   1. Distill the key points into 3-5 clear sentences.
   2. Use plain language — no jargon unless necessary.
@@ -30,9 +34,8 @@ summary_agent = LlmAgent(
     """,
 )
 
-#3 - Fact-check Agent
 fact_check_agent = LlmAgent(
-    name = "FactCheckAgent",
+    name="FactCheckAgent",
     model="gemini-2.5-flash",
     description="Validates factual accuracy of research and flags uncertain claims.",
     instruction="""
@@ -45,8 +48,8 @@ fact_check_agent = LlmAgent(
 )
 
 root_agent = LlmAgent(
-    name = "CoordinatorAgent",
-    model = "gemini-2.5-flash",
+    name="CoordinatorAgent",
+    model="gemini-2.5-flash",
     description="Orchestrates research, summarization, and fact-checking for complex queries.",
     instruction="""
   You are a research coordinator. For any user question:
@@ -63,9 +66,11 @@ root_agent = LlmAgent(
   ALWAYS run all three steps before responding to the user.
   NEVER skip the fact-check step.
   """,
-  tools=[
-      AgentTool(agent=research_agent),
-      AgentTool(agent=summary_agent),
-      AgentTool(agent=fact_check_agent),
-  ],
+    tools=[
+        AgentTool(agent=research_agent),
+        AgentTool(agent=summary_agent),
+        AgentTool(agent=fact_check_agent),
+    ],
+    before_model_callback=input_guardrail,
+    after_model_callback=output_guardrail,
 )

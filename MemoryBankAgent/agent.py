@@ -7,6 +7,7 @@ from google import adk
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.tools.preload_memory_tool import PreloadMemoryTool
 
+from config.guardrails import input_guardrail, output_guardrail
 from config.settings import (
     MEMORY_AGENT_MODEL,
     MEMORY_AGENT_NAME,
@@ -34,4 +35,6 @@ root_agent = adk.Agent(
     ),
     tools=[PreloadMemoryTool()],
     after_agent_callback=generate_memory_callback,
+    before_model_callback=input_guardrail,
+    after_model_callback=output_guardrail,
 )

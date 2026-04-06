@@ -12,6 +12,7 @@ from google.adk.tools.preload_memory_tool import PreloadMemoryTool
 from google.genai import types
 
 from config.catalog import valid_product_ids
+from config.guardrails import input_guardrail, output_guardrail
 from config.settings import (
     LIVE_AGENT_NAME,
     LIVE_MODEL,
@@ -122,6 +123,8 @@ root_agent = LlmAgent(
     after_agent_callback=save_shopping_memory,
     before_tool_callback=validate_before_tool,
     after_tool_callback=handle_tool_error,
+    before_model_callback=input_guardrail,
+    after_model_callback=output_guardrail,
     generate_content_config=types.GenerateContentConfig(
         response_modalities=["AUDIO"],
         speech_config=types.SpeechConfig(

@@ -11,6 +11,7 @@ from google.adk.tools import BaseTool, ToolContext
 from google.adk.tools.preload_memory_tool import PreloadMemoryTool
 
 from config.catalog import valid_product_ids
+from config.guardrails import input_guardrail, output_guardrail
 from config.settings import (
     MAX_TOOL_ERRORS_BEFORE_ESCALATE,
     MEMORY_EVENTS_SLICE_END,
@@ -128,6 +129,8 @@ root_agent = LlmAgent(
     after_agent_callback=save_shopping_memory,
     before_tool_callback=validate_before_tool,
     after_tool_callback=handle_tool_error,
+    before_model_callback=input_guardrail,
+    after_model_callback=output_guardrail,
 )
 
 
