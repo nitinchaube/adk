@@ -4,6 +4,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from google.adk.agents import LlmAgent
 from config.settings import TEXT_MODEL
+from config.monitoring import (
+    composed_before_model,
+    composed_after_model,
+    monitor_before_tool,
+    monitor_after_tool,
+    monitor_after_agent,
+)
 from Tools.BigQueryTool import query_bigquery, list_datasets, describe_table
 
 root_agent = LlmAgent(
@@ -42,4 +49,9 @@ root_agent = LlmAgent(
     5. `bigquery-public-data.github_repos.commits` → GitHub commit metadata
     """,
     tools=[query_bigquery, list_datasets, describe_table],
+    before_model_callback=composed_before_model,
+    after_model_callback=composed_after_model,
+    before_tool_callback=monitor_before_tool,
+    after_tool_callback=monitor_after_tool,
+    after_agent_callback=monitor_after_agent,
 )

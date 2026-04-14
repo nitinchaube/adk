@@ -5,7 +5,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from google.adk.agents import LlmAgent
 from google.adk.tools import AgentTool
 from config.settings import TEXT_MODEL
-from config.guardrails import input_guardrail, output_guardrail
+from config.monitoring import (
+    composed_before_model,
+    composed_after_model,
+    monitor_after_agent,
+)
 
 from StatefulShoppingCartAgent.agent import root_agent as shopping_agent
 from BigQueryAgent.agent import root_agent as bigquery_agent
@@ -45,6 +49,7 @@ root_agent = LlmAgent(
         AgentTool(agent = github_agent),
         AgentTool(agent = research_agent),
     ],
-    before_model_callback = input_guardrail,
-    after_model_callback = output_guardrail,
+    before_model_callback=composed_before_model,
+    after_model_callback=composed_after_model,
+    after_agent_callback=monitor_after_agent,
 )

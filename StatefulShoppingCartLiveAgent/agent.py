@@ -12,7 +12,13 @@ from google.adk.tools.preload_memory_tool import PreloadMemoryTool
 from google.genai import types
 
 from config.catalog import valid_product_ids
-from config.guardrails import input_guardrail, output_guardrail
+from config.monitoring import (
+    composed_before_model,
+    composed_after_model,
+    monitor_before_tool,
+    monitor_after_tool,
+    monitor_after_agent,
+)
 from config.settings import (
     LIVE_AGENT_NAME,
     LIVE_MODEL,
@@ -40,6 +46,7 @@ async def save_shopping_memory(callback_context: CallbackContext) -> None:
         )
     except ValueError:
         pass
+    await monitor_after_agent(callback_context)
 
 
 async def validate_before_tool(
@@ -87,6 +94,27 @@ async def handle_tool_error(
     return None
 
 
+async def composed_before_tool(
+    tool: BaseTool,
+    args: dict[str, Any],
+    tool_context: ToolContext,
+) -> dict[str, Any] | None:
+    early = await validate_before_tool(tool, args, tool_context)
+    if early is not None:
+        return early
+    return await monitor_before_tool(tool, args, tool_context)
+
+
+async def composed_after_tool(
+    tool: BaseTool,
+    args: dict[str, Any],
+    tool_context: ToolContext,
+    tool_response: dict[str, Any],
+) -> dict[str, Any] | None:
+    await monitor_after_tool(tool, args, tool_context, tool_response)
+    return await handle_tool_error(tool, args, tool_context, tool_response)
+
+
 root_agent = LlmAgent(
     name=LIVE_AGENT_NAME,
     model=LIVE_MODEL,
@@ -121,10 +149,10 @@ root_agent = LlmAgent(
         PreloadMemoryTool(),
     ],
     after_agent_callback=save_shopping_memory,
-    before_tool_callback=validate_before_tool,
-    after_tool_callback=handle_tool_error,
-    before_model_callback=input_guardrail,
-    after_model_callback=output_guardrail,
+    before_tool_callback=composed_before_tool,
+    after_tool_callback=composed_after_tool,
+    before_model_callback=composed_before_model,
+    after_model_callback=composed_after_model,
     generate_content_config=types.GenerateContentConfig(
         response_modalities=["AUDIO"],
         speech_config=types.SpeechConfig(

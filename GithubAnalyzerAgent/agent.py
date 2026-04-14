@@ -4,7 +4,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from google.adk.agents import LlmAgent, ParallelAgent, SequentialAgent
 from Tools.GitHubTool import get_repo_info, get_repo_issues, get_repo_contributors
-from config.guardrails import input_guardrail, output_guardrail
+from config.monitoring import (
+    composed_before_model,
+    composed_after_model,
+    monitor_before_tool,
+    monitor_after_tool,
+    monitor_after_agent,
+)
 
 
 repo_info_agent = LlmAgent(
@@ -18,7 +24,11 @@ repo_info_agent = LlmAgent(
     Respond with a brief summary of the repo metadata.
     """,
     tools=[get_repo_info],
-    before_model_callback=input_guardrail,
+    before_model_callback=composed_before_model,
+    after_model_callback=composed_after_model,
+    before_tool_callback=monitor_before_tool,
+    after_tool_callback=monitor_after_tool,
+    after_agent_callback=monitor_after_agent,
 )
 
 issue_tracker_agent = LlmAgent(
@@ -32,7 +42,11 @@ issue_tracker_agent = LlmAgent(
     Respond with the issue titles and labels.
     """,
     tools=[get_repo_issues],
-    before_model_callback=input_guardrail,
+    before_model_callback=composed_before_model,
+    after_model_callback=composed_after_model,
+    before_tool_callback=monitor_before_tool,
+    after_tool_callback=monitor_after_tool,
+    after_agent_callback=monitor_after_agent,
 )
 
 contributor_agent = LlmAgent(
@@ -46,7 +60,11 @@ contributor_agent = LlmAgent(
     Respond with the contributor usernames and their commit counts.
     """,
     tools=[get_repo_contributors],
-    before_model_callback=input_guardrail,
+    before_model_callback=composed_before_model,
+    after_model_callback=composed_after_model,
+    before_tool_callback=monitor_before_tool,
+    after_tool_callback=monitor_after_tool,
+    after_agent_callback=monitor_after_agent,
 )
 
 
@@ -73,8 +91,9 @@ gather_agent = LlmAgent(
     4. Summary verdict (is this repo active, healthy, well-maintained?)
     Be concise but informative.
     """,
-    before_model_callback=input_guardrail,
-    after_model_callback=output_guardrail,
+    before_model_callback=composed_before_model,
+    after_model_callback=composed_after_model,
+    after_agent_callback=monitor_after_agent,
 )
 
 root_agent = SequentialAgent(
